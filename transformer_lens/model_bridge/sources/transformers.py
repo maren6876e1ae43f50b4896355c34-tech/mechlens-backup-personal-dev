@@ -540,6 +540,7 @@ def boot(
         "vision_config",
         # Cohere
         "logit_scale",
+        "use_qk_norm",
         "rope_parameters",
         # Hybrid/MoE architectures
         "layer_types",

@@ -8,7 +8,7 @@
   },
   "total_architectures": 65,
   "total_models": 12899,
-  "total_verified": 1017,
+  "total_verified": 1018,
   "models": [
     {
       "architecture_id": "HunYuanDenseV1ForCausalLM",
@@ -159960,14 +159960,14 @@
     {
       "architecture_id": "CohereForCausalLM",
       "model_id": "hyper-accel/tiny-random-cohere",
-      "status": 3,
-      "verified_date": "2026-06-26",
+      "status": 1,
+      "verified_date": "2026-10-09",
       "metadata": null,
-      "note": "Below threshold: P1=50.0% < 100.0% (failed: forward_pass_logits); P3=90.0% but required tests failed \u2014 Tensors differ: max_diff=0.009886, mean_rel=0.980186",
-      "phase1_score": 50.0,
+      "note": "Full verification completed",
+      "phase1_score": 100.0,
       "phase2_score": 100.0,
-      "phase3_score": 90.0,
-      "phase4_score": 72.1,
+      "phase3_score": 100.0,
+      "phase4_score": 75.0,
       "phase7_score": null,
       "phase8_score": null
     },

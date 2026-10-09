@@ -204,9 +204,9 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
             return "post_reshape"
         if n_heads and shape == (n_heads * head_dim,):
             return "pre_reshape"
-        # Per-head norm (Cohere) broadcasts on the reshaped [B,H,S,D] tensor.
+        # Cohere's [H,D] weights broadcast on [B,S,H,D], before the transpose.
         if n_heads and shape == (n_heads, head_dim):
-            return "post_reshape"
+            return "per_head"
         raise RuntimeError(
             f"{self.name}: cannot determine QK-norm phase from q_norm weight "
             f"shape {shape} (head_dim={head_dim}, n_heads={n_heads}). Expected "
@@ -379,12 +379,27 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
             query_states = self.hook_q_normed(self.q_norm(query_states))
             if has_k_norm:
                 key_states = self.hook_k_normed(self.k_norm(key_states))
+        elif has_q_norm and self._qk_norm_phase == "per_head":
+            query_states = self.hook_q_normed(
+                self.q_norm(query_states.transpose(1, 2)).transpose(1, 2)
+            )
+            if has_k_norm:
+                key_states = self.hook_k_normed(
+                    self.k_norm(key_states.transpose(1, 2)).transpose(1, 2)
+                )
 
         # --- RoPE ---
         if position_embeddings is not None:
             position_embeddings = self._apply_position_embedding_hooks(position_embeddings)
             cos, sin = position_embeddings
-            from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
+            if getattr(self.config, "rotary_adjacent_pairs", False):
+                from transformers.models.cohere.modeling_cohere import (
+                    apply_rotary_pos_emb,
+                )
+            else:
+                from transformers.models.llama.modeling_llama import (
+                    apply_rotary_pos_emb,
+                )
 
             # Some models use partial rotary (e.g., GPT-OSS) where cos/sin cover only
             # a portion of head_dim. Split Q/K, rotate the partial dims, recombine.

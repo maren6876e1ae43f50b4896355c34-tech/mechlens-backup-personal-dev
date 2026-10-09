@@ -72,6 +72,9 @@ class TestCohereAdapterConfig:
     def test_default_prepend_bos_is_true(self, adapter: CohereArchitectureAdapter) -> None:
         assert adapter.cfg.default_prepend_bos is True
 
+    def test_rotary_adjacent_pairs(self, adapter: CohereArchitectureAdapter) -> None:
+        assert adapter.cfg.rotary_adjacent_pairs is True
+
     def test_rotary_base_extracted(self) -> None:
         cfg = _make_cfg(rope_parameters={"rope_theta": 80000.0, "rope_type": "default"})
         adapter = CohereArchitectureAdapter(cfg)
@@ -332,86 +335,27 @@ class TestCohereAdapterWeightConversions:
 
 
 class TestCoherePreprocessWeights:
-    """preprocess_weights folds logit_scale into unembed.weight."""
+    """Preparation owns the scale; processing must not apply it again."""
 
-    def _make_state_dict(self, d_model: int = 64, d_vocab: int = 1000) -> dict[str, torch.Tensor]:
-        """Minimal state dict with unembed.weight and unembed.bias."""
-        return {
-            "embed.weight": torch.ones(d_vocab, d_model),
-            "unembed.weight": torch.ones(d_vocab, d_model),
-            "unembed.bias": torch.zeros(d_vocab),
-        }
-
-    def test_unembed_weight_scaled_by_logit_scale(self) -> None:
-        cfg = _make_cfg(logit_scale=0.5)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = self._make_state_dict()
-        sd = adapter.preprocess_weights(sd)
-        assert torch.allclose(sd["unembed.weight"], torch.full_like(sd["unembed.weight"], 0.5))
-
-    def test_unembed_bias_scaled_by_logit_scale(self) -> None:
-        cfg = _make_cfg(logit_scale=0.5)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = self._make_state_dict()
-        sd["unembed.bias"] = torch.ones(1000)
-        sd = adapter.preprocess_weights(sd)
-        assert torch.allclose(sd["unembed.bias"], torch.full_like(sd["unembed.bias"], 0.5))
-
-    def test_embed_weight_unchanged_when_tied(self) -> None:
-        # Bridge clones unembed.weight before calling preprocess_weights; the fold must NOT
-        # corrupt embed.weight (would fail if fold ever switched to an in-place op).
-        cfg = _make_cfg(logit_scale=0.0625)
-        adapter = CohereArchitectureAdapter(cfg)
-        shared = torch.ones(1000, 64)
-        sd: dict[str, torch.Tensor] = {
-            "embed.weight": shared,
-            "unembed.weight": shared,
-        }
-        assert sd["embed.weight"].data_ptr() == sd["unembed.weight"].data_ptr()
-        adapter.preprocess_weights(sd)
-        assert torch.allclose(sd["embed.weight"], torch.ones_like(sd["embed.weight"]))
-
-    def test_logit_scale_one_is_noop(self) -> None:
-        cfg = _make_cfg(logit_scale=1.0)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = self._make_state_dict()
-        original_unembed = sd["unembed.weight"].clone()
-        adapter.preprocess_weights(sd)
-        assert torch.allclose(sd["unembed.weight"], original_unembed)
+    @pytest.mark.parametrize("scale", [None, 0.0, 0.0625, 0.125, 1.0])
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+    def test_weights_and_bias_are_not_rescaled(self, scale, dtype) -> None:
+        adapter = CohereArchitectureAdapter(_make_cfg(logit_scale=scale))
+        shared = torch.randn(100, 64, dtype=dtype)
+        bias = torch.randn(100, dtype=dtype)
+        sd = {"embed.weight": shared, "unembed.weight": shared, "unembed.bias": bias}
+        expected = {key: value.clone() for key, value in sd.items()}
+        for _ in range(2):
+            sd = adapter.preprocess_weights(sd)
+            for key, value in expected.items():
+                torch.testing.assert_close(sd[key], value, rtol=0, atol=0)
+                assert sd[key].dtype == dtype
 
     def test_missing_unembed_bias_no_error(self) -> None:
-        cfg = _make_cfg(logit_scale=0.0625)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = {
-            "unembed.weight": torch.ones(1000, 64),
-        }
-        result = adapter.preprocess_weights(sd)
-        assert "unembed.weight" in result
-        assert torch.allclose(
-            result["unembed.weight"], torch.full_like(result["unembed.weight"], 0.0625)
-        )
-
-    def test_default_logit_scale_applied(self) -> None:
-        cfg = _make_cfg(logit_scale=None)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = self._make_state_dict()
-        sd = adapter.preprocess_weights(sd)
-        expected = pytest.approx(0.0625, abs=1e-6)
-        assert float(sd["unembed.weight"][0, 0].item()) == expected
-
-    def test_dtype_preserved_float32(self) -> None:
-        cfg = _make_cfg(logit_scale=0.5)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = {"unembed.weight": torch.ones(100, 64, dtype=torch.float32)}
-        sd = adapter.preprocess_weights(sd)
-        assert sd["unembed.weight"].dtype == torch.float32
-
-    def test_dtype_preserved_float16(self) -> None:
-        cfg = _make_cfg(logit_scale=0.5)
-        adapter = CohereArchitectureAdapter(cfg)
-        sd = {"unembed.weight": torch.ones(100, 64, dtype=torch.float16)}
-        sd = adapter.preprocess_weights(sd)
-        assert sd["unembed.weight"].dtype == torch.float16
+        adapter = CohereArchitectureAdapter(_make_cfg())
+        weight = torch.randn(100, 64)
+        result = adapter.preprocess_weights({"unembed.weight": weight})
+        torch.testing.assert_close(result["unembed.weight"], weight, rtol=0, atol=0)
 
 
 class TestCohereArchitectureGuards:

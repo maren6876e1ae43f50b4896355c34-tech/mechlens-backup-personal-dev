@@ -7,7 +7,7 @@ Supports CohereForCausalLM models (Command-R family) with:
 - Gated SwiGLU MLP (gate_proj, up_proj, down_proj)
 - Logit scaling: output logits multiplied by config.logit_scale (default 1/16)
 - Tied embed/unembed weights by default (tie_word_embeddings=True)
-- Interleaved RoPE via CohereRotaryEmbedding (delegated to HF module)
+- Interleaved RoPE and optional per-head QK LayerNorm
 """
 
 from typing import Any
@@ -35,9 +35,9 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
       Attention and MLP both read the SAME normed hidden states (parallel).
     - CohereLayerNorm is true LayerNorm (mean-subtracting), NOT RMSNorm.
       It has a weight parameter but NO bias parameter.
-    - Logit scale: CohereForCausalLM.forward multiplies logits by logit_scale
-      (default 0.0625 = 1/16). Folded into unembed.weight via preprocess_weights.
-    - Rotary embeddings use repeat_interleave instead of cat-split (delegated to HF).
+    - Logit scale is folded once into lm_head and disabled in HF's outer forward,
+      so W_U remains a live weight view in the same units as output logits.
+    - Rotary embeddings use adjacent pairs instead of cat-split.
 
     Optional parameters (absent from state_dict by default):
     - blocks.{i}.attn.b_Q/b_K/b_V/b_O — no bias on projections (attention_bias=False)
@@ -59,6 +59,7 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
 
         # --- Position embeddings and MLP ---
         self.cfg.positional_embedding_type = "rotary"
+        self.cfg.rotary_adjacent_pairs = True
         self.cfg.gated_mlp = True
         self.cfg.attn_only = False
 
@@ -90,9 +91,16 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
         # CohereConfig.logit_scale is typed float | None; apply explicit None-check
         # so cfg.logit_scale is always a plain float (never None).
         # logit_scale is not a declared field on TransformerBridgeConfig; it is a
-        # Cohere-specific dynamic attribute accessed later in preprocess_weights.
+        # Cohere-specific metadata; prepare_model folds the runtime scale once.
         _ls = getattr(cfg, "logit_scale", None)
-        self.cfg.logit_scale = float(_ls) if _ls is not None else 0.0625  # type: ignore[attr-defined]
+        setattr(self.cfg, "logit_scale", float(_ls) if _ls is not None else 0.0625)
+
+        qk_norms = {}
+        if getattr(cfg, "use_qk_norm", False):
+            qk_norms = {
+                "q_norm": NormalizationBridge(name="q_norm", config=self.cfg),
+                "k_norm": NormalizationBridge(name="k_norm", config=self.cfg),
+            }
 
         # --- RoPE theta (informational metadata) ---
         # CohereRotaryEmbedding reads config.rope_parameters["rope_theta"] directly;
@@ -109,8 +117,7 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
         # Block structure follows Falcon's parallel_attn=True, num_ln_in_parallel_attn=1
         # mode: single ln1 feeds both attn and MLP; NO ln2.
         # Submodule shapes follow Llama: separate q/k/v/o projections and SwiGLU MLP.
-        # Rotary and attention both delegate to HF modules, preserving Cohere's
-        # repeat_interleave RoPE convention without re-implementing it in TL.
+        # The attention bridge honors adjacent-pair RoPE and optional QK norms.
         self.component_mapping = {
             # Embedding: model.embed_tokens (same root as Llama, not transformer.* like Falcon)
             "embed": EmbeddingBridge(name="model.embed_tokens"),
@@ -134,13 +141,12 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
                             "k": LinearBridge(name="k_proj"),
                             "v": LinearBridge(name="v_proj"),
                             "o": LinearBridge(name="o_proj"),
+                            **qk_norms,
                         },
                         requires_attention_mask=True,
                         requires_position_embeddings=True,
                     ),
                     # GatedMLPBridge: gate/in/out matches Llama's gate_proj/up_proj/down_proj.
-                    # Optional use_qk_norm is handled transparently by HF's
-                    # CohereAttention.forward delegation (no extra submodules needed).
                     "mlp": GatedMLPBridge(
                         name="mlp",
                         config=self.cfg,
@@ -154,23 +160,33 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
             ),
             # Final LayerNorm (CohereLayerNorm, weight-only) at model.norm
             "ln_final": NormalizationBridge(name="model.norm", config=self.cfg),
-            # Unembed: lm_head. logit_scale is folded into weight in preprocess_weights.
+            # prepare_model folds logit_scale without changing tied embeddings.
             "unembed": UnembeddingBridge(name="lm_head", config=self.cfg),
         }
 
-    def preprocess_weights(self, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Fold logit_scale into unembed weights before ProcessWeights runs.
+    def prepare_model(self, hf_model: Any) -> None:
+        """Fold HF's runtime scale once, preserving live analysis weight views."""
+        scale = float(hf_model.logit_scale)
+        if scale == 1.0:
+            return
+        # Replacing the head parameter unties it without scaling input embeddings.
+        for name in ("weight", "bias"):
+            parameter = getattr(hf_model.lm_head, name, None)
+            if parameter is not None:
+                scaled = (parameter.detach().float() * scale).to(parameter.dtype)
+                setattr(
+                    hf_model.lm_head,
+                    name,
+                    torch.nn.Parameter(scaled, requires_grad=parameter.requires_grad),
+                )
+        # Both normal and compatibility forwards still call HF's outer forward.
+        hf_model.logit_scale = 1.0
 
-        bridge.py lines 726-732 clone unembed.weight before calling this, so
-        scaling does not affect the tied embed.weight.
-        logit_scale=1.0 is a no-op (skipped for efficiency).
+    def preprocess_weights(self, state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """Keep the scale already folded by prepare_model, including on repeated calls.
+
+        Folding it again here would change logits on every process_weights call.
         """
-        scale: float = getattr(self.cfg, "logit_scale")  # always set by __init__
-        if scale != 1.0:
-            for key in ("unembed.weight", "unembed.bias"):
-                if key in state_dict:
-                    orig_dtype = state_dict[key].dtype
-                    state_dict[key] = (state_dict[key].float() * scale).to(orig_dtype)
         return state_dict
 
     def setup_component_testing(self, hf_model: Any, bridge_model: Any = None) -> None:
