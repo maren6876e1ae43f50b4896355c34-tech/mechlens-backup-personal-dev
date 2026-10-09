@@ -1,0 +1,59 @@
+Command-R acceptance evidence
+Date: 2026-10-09 UTC
+Box: local CPU (no RunPod)
+Scope: public tiny checkpoint, not production Command-R certification
+Command: OMP_NUM_THREADS=1 uv run --with socksio pytest tests/acceptance/model_bridge/test_cohere_weight_conversion.py -v -s --tb=short
+Prerequisite: source .env
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-8.4.1, pluggy-1.6.0 -- /root/.cache/uv/builds-v0/.tmpUNTudZ/bin/python
+cachedir: .pytest_cache
+rootdir: /workspace/scratch/49914ca087f5/mechlens
+configfile: pyproject.toml
+plugins: jaxtyping-0.2.19, typeguard-4.4.4, anyio-4.9.0, rerunfailures-16.1, nbval-0.10.0, doctestplus-1.4.0, xdist-3.8.0, cov-6.2.1
+collecting ... collected 2 items
+
+tests/acceptance/model_bridge/test_cohere_weight_conversion.py::test_cohere_weight_conversion[raw]
+Loading weights:   0%|          | 0/18 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 18/18 [00:00<00:00, 4805.70it/s]
+
+Loading weights:   0%|          | 0/18 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 18/18 [00:00<00:00, 5955.47it/s]
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+checkpoint=trl-internal-testing/tiny-CohereForCausalLM@90bc56bd12c642f6bf5e710ebd7c626dd7c0201c box=local device=cpu processed=False
+prompt='The capital of France is' tokens=[[2162, 7784, 1719, 5334, 1801]]
+logits: max_absolute_delta=1.13504939e-09 tolerance=0.0001
+blocks.0.hook_in: max_absolute_delta=0 tolerance=0.0001
+blocks.0.attn.hook_pattern: max_absolute_delta=5.96046448e-08 tolerance=0.0001
+blocks.1.hook_out: max_absolute_delta=7.15255737e-07 tolerance=0.0001
+PASSED
+tests/acceptance/model_bridge/test_cohere_weight_conversion.py::test_cohere_weight_conversion[processed]
+Loading weights:   0%|          | 0/18 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 18/18 [00:00<00:00, 4154.83it/s]
+checkpoint=trl-internal-testing/tiny-CohereForCausalLM@90bc56bd12c642f6bf5e710ebd7c626dd7c0201c box=local device=cpu processed=True
+prompt='The capital of France is' tokens=[[2162, 7784, 1719, 5334, 1801]]
+logits: max_absolute_delta=1.13504939e-09 tolerance=0.0001
+blocks.0.hook_in: max_absolute_delta=0 tolerance=0.0001
+blocks.0.attn.hook_pattern: max_absolute_delta=5.96046448e-08 tolerance=0.0001
+blocks.1.hook_out: max_absolute_delta=7.15255737e-07 tolerance=0.0001
+PASSED
+
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+.venv/lib/python3.12/site-packages/jaxtyping/import_hook.py:106: 223 warnings
+tests/acceptance/model_bridge/test_cohere_weight_conversion.py: 1 warning
+  /workspace/scratch/49914ca087f5/mechlens/.venv/lib/python3.12/site-packages/jaxtyping/import_hook.py:106: DeprecationWarning: ast.Str is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    elif isinstance(child, ast.Expr) and isinstance(child.value, ast.Str):
+
+transformer_lens/SVDInterpreter.py:30
+  /workspace/scratch/49914ca087f5/mechlens/transformer_lens/SVDInterpreter.py:30: InstrumentationWarning: @typechecked only supports instrumenting functions wrapped with @classmethod, @staticmethod or @property -- not typechecking transformer_lens.SVDInterpreter.SVDInterpreter.get_singular_vectors
+    @typechecked
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 2 passed, 227 warnings in 17.98s =======================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

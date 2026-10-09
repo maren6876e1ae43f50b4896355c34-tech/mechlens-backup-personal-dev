@@ -28,6 +28,7 @@ integration-test:
 
 acceptance-test:
 	$(RUN) pytest tests/acceptance -m "not slow" $(RERUN_ARGS)
+	$(RUN) pytest tests/acceptance/model_bridge/test_cohere_weight_conversion.py $(RERUN_ARGS)
 
 benchmark-test:
 	$(RUN) pytest tests/benchmarks $(RERUN_ARGS)
