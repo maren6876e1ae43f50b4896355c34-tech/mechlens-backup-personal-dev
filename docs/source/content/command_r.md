@@ -16,7 +16,7 @@ import torch
 from transformer_lens.model_bridge import TransformerBridge
 
 bridge = TransformerBridge.boot_transformers(
-    "CohereForAI/c4ai-command-r-v01",
+    "CohereLabs/c4ai-command-r-v01",
     device="cuda",
     dtype=torch.bfloat16,
 )
@@ -41,9 +41,10 @@ and interleaved rotary embeddings.
 
 DeepSeek support is provided through two bridge adapters:
 
-- `DeepseekV2ForCausalLM`: DeepSeek-V2, DeepSeek-V2-Lite, and
-  DeepSeek-Coder-V2.
-- `DeepseekV3ForCausalLM`: DeepSeek-V3 and DeepSeek-R1.
+- `DeepSeekV2ArchitectureAdapter` handles `DeepseekV2ForCausalLM`: DeepSeek-V2,
+  DeepSeek-V2-Lite, and DeepSeek-Coder-V2.
+- `DeepSeekV3ArchitectureAdapter` handles `DeepseekV3ForCausalLM`: DeepSeek-V3
+  and DeepSeek-R1.
 
 Both adapters support DeepSeek's Multi-Head Latent Attention (MLA), mixture of
 experts with shared experts, initial dense layers, RMSNorm, and rotary
