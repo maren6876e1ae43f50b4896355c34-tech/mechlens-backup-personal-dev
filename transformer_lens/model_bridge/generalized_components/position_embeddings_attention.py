@@ -384,7 +384,10 @@ class PositionEmbeddingsAttentionBridge(PositionEmbeddingHooksMixin, AttentionBr
         if position_embeddings is not None:
             position_embeddings = self._apply_position_embedding_hooks(position_embeddings)
             cos, sin = position_embeddings
-            from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
+            if getattr(self.config, "rotary_adjacent_pairs", False):
+                from transformers.models.cohere.modeling_cohere import apply_rotary_pos_emb
+            else:
+                from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
             # Some models use partial rotary (e.g., GPT-OSS) where cos/sin cover only
             # a portion of head_dim. Split Q/K, rotate the partial dims, recombine.

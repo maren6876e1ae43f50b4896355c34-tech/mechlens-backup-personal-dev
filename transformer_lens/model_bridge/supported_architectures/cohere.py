@@ -59,6 +59,7 @@ class CohereArchitectureAdapter(ArchitectureAdapter):
 
         # --- Position embeddings and MLP ---
         self.cfg.positional_embedding_type = "rotary"
+        self.cfg.rotary_adjacent_pairs = True
         self.cfg.gated_mlp = True
         self.cfg.attn_only = False
 
